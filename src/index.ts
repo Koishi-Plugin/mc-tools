@@ -149,7 +149,7 @@ export function apply(ctx: Context, config: Config) {
   // 玩家信息查询
   config.playerEnabled !== false && registerPlayer(ctx, mc)
   // 服务器信息查询
-  config.infoEnabled !== false && config.serverApis?.length && registerInfo(ctx, mc, config)
+  config.infoEnabled !== false && config.serverApis?.length && registerInfo(mc, config)
   // 服务器连接与管理
   if (config.rconServers.length > 0) registerServer(ctx, mc, config)
   // 资源查询
