@@ -218,7 +218,6 @@ function formatServerStatus(status: ServerStatus, config: Config): string {
   };
   const getValue = (name: string, limit?: number): string | null => {
     switch (name) {
-      case 'name': return status.port === 25565 || status.port === 19132 ? status.host : `${status.host}:${status.port}`;
       case 'ip': return status.ip_address;
       case 'srv': return status.srv_record ? `${status.srv_record.host}:${status.srv_record.port}` : null;
       case 'icon': return status.icon?.startsWith('data:image/png;base64,') ? h.image(status.icon).toString() : null;
@@ -232,9 +231,9 @@ function formatServerStatus(status: ServerStatus, config: Config): string {
       case 'gamemode': return status.gamemode;
       case 'eulablock': return status.eula_blocked ? '是' : null;
       case 'serverid': return status.server_id;
-      case 'playercount': return status.players.list?.length.toString();
-      case 'plugincount': return status.plugins?.length.toString();
-      case 'modcount': return status.mods?.length.toString();
+      case 'playercount': { const count = status.players.list?.length; return count > 0 ? count.toString() : null; }
+      case 'plugincount': { const count = status.plugins?.length; return count > 0 ? count.toString() : null; }
+      case 'modcount': { const count = status.mods?.length; return count > 0 ? count.toString() : null; }
       case 'playerlist': return formatList(status.players.list?.map(name => ({name})), limit);
       case 'pluginlist': return formatList(status.plugins, limit);
       case 'modlist': return formatList(status.mods, limit);
