@@ -96,7 +96,8 @@ async function sendStatusNotification(ctx: Context, targets: StatusTarget[], cha
   await ctx.broadcast(broadcastChannels, statusMessage);
 }
 
-let prevStatus: MinecraftServiceStatus = {};
+let confirmedStatus: MinecraftServiceStatus = {};
+let lastRawStatus: MinecraftServiceStatus = {};
 let statusCheckInterval: NodeJS.Timeout | null = null;
 
 /**
@@ -136,16 +137,22 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
   const checkStatus = async () => {
     try {
       const currentStatus = await getMinecraftStatus();
-      if (Object.keys(prevStatus).length > 0) {
-        const changes: StatusChange[] = Object.entries(currentStatus)
-          .filter(([service, to]) => prevStatus[service] !== undefined && prevStatus[service] !== to)
-          .map(([service, to]) => ({ service, from: prevStatus[service], to }));
-
-        if (changes.length > 0) {
-          await sendStatusNotification(ctx, config.statusNoticeTargets, changes);
+      if (Object.keys(confirmedStatus).length === 0) {
+        confirmedStatus = { ...currentStatus };
+        lastRawStatus = { ...currentStatus };
+        return;
+      }
+      const changes: StatusChange[] = [];
+      for (const [service, isOnline] of Object.entries(currentStatus)) {
+        if (lastRawStatus[service] === isOnline) {
+          if (confirmedStatus[service] !== undefined && confirmedStatus[service] !== isOnline) {
+            changes.push({ service, from: confirmedStatus[service], to: isOnline });
+            confirmedStatus[service] = isOnline;
+          }
         }
       }
-      prevStatus = currentStatus;
+      lastRawStatus = currentStatus;
+      if (changes.length > 0) await sendStatusNotification(ctx, config.statusNoticeTargets, changes);
     } catch (error) {
       ctx.logger.warn('检查 Minecraft 服务状态失败:', error);
     }
