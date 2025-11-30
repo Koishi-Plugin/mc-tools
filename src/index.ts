@@ -2,8 +2,8 @@ import { Context, Schema } from 'koishi'
 import { registerPlayer } from './tool/player'
 import { registerInfo } from './server/info'
 import { registerServer, ServerConfig } from './server/server'
-import { registerVer, regVerCheck, UpdTarget, cleanupVerCheck, ServerMaps } from './tool/ver'
-import { registerStatus, regStatusCheck, StatusTarget, cleanupStatusCheck } from './tool/status'
+import { registerVer, regVerCheck, UpdTarget, ServerMaps } from './tool/ver'
+import { registerStatus, regStatusCheck, StatusTarget } from './tool/status'
 import { registerLinkParser } from './resource/parser'
 import { registerCurseForge } from './resource/curseforge'
 import { registerModrinth } from './resource/modrinth'
@@ -162,9 +162,4 @@ export function apply(ctx: Context, config: Config) {
   // 统一搜索
   if (config.mcmodEnabled || config.mcwikiEnabled || config.modrinthEnabled
     || config.curseforgeEnabled) registerSearch(ctx, mc, config)
-}
-
-export function dispose() {
-  cleanupVerCheck()
-  cleanupStatusCheck()
 }

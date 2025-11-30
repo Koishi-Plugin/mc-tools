@@ -1,4 +1,5 @@
 import { h, Context } from 'koishi'
+import { createHash } from 'crypto'
 import {} from 'koishi-plugin-puppeteer'
 
 /**
@@ -19,6 +20,18 @@ interface MinecraftPlayerProfile {
   uuidDashed: string
   skin?: { url: string, model: 'slim' | 'classic' }
   cape?: { url: string }
+}
+
+/**
+ * 计算 Minecraft 离线/盗版 UUID (Version 3 based on MD5)
+ */
+function getOfflineUUID(username: string): string {
+  const data = `OfflinePlayer:${username}`
+  const hash = createHash('md5').update(data).digest()
+  hash[6] = (hash[6] & 0x0f) | 0x30
+  hash[8] = (hash[8] & 0x3f) | 0x80
+  const hex = hash.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 /**
@@ -146,20 +159,25 @@ export function registerPlayer(ctx: Context, parent: any) {
   const player = parent.subcommand('.player <username>', '查询 Minecraft 玩家信息')
     .action(async ({}, username) => {
       if (!username) return '请输入玩家用户名';
+      const offlineUUID = getOfflineUUID(username);
+      let profile: MinecraftPlayerProfile | null = null;
       try {
-        const profile = await fetchPlayerProfile(ctx, username);
+        profile = await fetchPlayerProfile(ctx, username);
+      } catch (e) { /* 忽略查询失败 */ }
+      const message = [h.text(`玩家: ${profile ? profile.name : username}`)];
+      if (profile) {
         const modelType = profile.skin.model === 'slim' ? '纤细' : '经典';
-        return h('message', [
-          h.text(`\n玩家: ${profile.name} [${modelType}] `), profile.cape && h.text('披风'),
-          h.text(`\nUUID: ${profile.uuidDashed}`),
-          h.text('\n在游戏中使用 "/give @p minecraft:xxx" 来获取玩家头颅'),
-          h.text(`\n1.12及之前:skull 1 3 {SkullOwner:"${profile.name}"}`),
-          h.text(`\n1.13及之后:player_head{SkullOwner:"${profile.name}"}`)
-        ]);
-      } catch (error) {
-        ctx.logger.error(`查询玩家信息失败: ${error.message}`, error);
-        return `查询玩家信息失败: ${error.message}`;
+        message.push(h.text(` [${modelType}] `));
+        if (profile.cape) message.push(h.text('(披风)'));
       }
+      message.push(h.text(`\nOffine UUID: ${offlineUUID}`));
+      if (profile) message.push(h.text(`\nOnline UUID: ${profile.uuidDashed}`));
+      message.push(
+        h.text('\n使用 "/give @p minecraft:xxx" 获取玩家头颅'),
+        h.text(`\n[1.12-]skull 1 3 {SkullOwner:"${profile ? profile.name : username}"}`),
+        h.text(`\n[1.13+]player_head{SkullOwner:"${profile ? profile.name : username}"}`)
+      );
+      return h('message', message);
     });
   player.subcommand('.skin <username>', '获取玩家皮肤预览')
     .option('elytra', '-e 显示鞘翅')

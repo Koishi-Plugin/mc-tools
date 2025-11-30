@@ -95,20 +95,7 @@ async function sendUpdateNotification(ctx: Context, targets: UpdTarget[], versio
   await ctx.broadcast(broadcastChannels, updateMsg);
 }
 
-
-// 存储最新版本和检查定时器
-const prevVersions = { release: { id: '', releaseTime: '' }, snapshot: { id: '', releaseTime: '' } };
-let versionCheckInterval: any = null;
-
-/**
- * 清理版本检查定时器
- */
-export function cleanupVerCheck() {
-  if (versionCheckInterval) {
-    clearInterval(versionCheckInterval);
-    versionCheckInterval = null;
-  }
-}
+const sharedVersionCache = { release: { id: '', releaseTime: '' }, snapshot: { id: '', releaseTime: '' } };
 
 /**
  * 注册Minecraft版本查询命令
@@ -122,9 +109,10 @@ export function registerVer(mc: Command) {
       };
       try {
         const versions = await getLatestVersion();
+        Object.assign(sharedVersionCache, versions);
         return formatVersionInfo(versions.release, versions.snapshot);
       } catch (error) {
-        if (prevVersions.release.id && prevVersions.snapshot.id) return formatVersionInfo(prevVersions.release, prevVersions.snapshot);
+        if (sharedVersionCache.release.id && sharedVersionCache.snapshot.id) return formatVersionInfo(sharedVersionCache.release, sharedVersionCache.snapshot);
         return '获取 Minecraft 版本信息失败';
       }
     });
@@ -134,26 +122,24 @@ export function registerVer(mc: Command) {
  * 设置Minecraft版本更新检测和通知
  */
 export function regVerCheck(ctx: Context, config: Config) {
+  const trackedVersion = { release: { id: '', releaseTime: '' }, snapshot: { id: '', releaseTime: '' } };
   const checkVersions = async () => {
     try {
       const latest = await getLatestVersion();
-      const isFirstCheck = !prevVersions.release.id;
-      // 检查并推送更新
+      Object.assign(sharedVersionCache, latest);
+      const isFirstCheck = !trackedVersion.release.id;
+
       if (!isFirstCheck) {
-        if (latest.release.id !== prevVersions.release.id) {
-          sendUpdateNotification(ctx, config.noticeTargets, 'release', latest.release);
-        }
-        // 只有当快照版与正式版不同时才推送
-        if (latest.snapshot.id !== prevVersions.snapshot.id && latest.snapshot.id !== latest.release.id) {
-          sendUpdateNotification(ctx, config.noticeTargets, 'snapshot', latest.snapshot);
-        }
+        if (latest.release.id !== trackedVersion.release.id) await sendUpdateNotification(ctx, config.noticeTargets, 'release', latest.release);
+        if (latest.snapshot.id !== trackedVersion.snapshot.id && latest.snapshot.id !== latest.release.id) await sendUpdateNotification(ctx, config.noticeTargets, 'snapshot', latest.snapshot);
       }
-      Object.assign(prevVersions, latest);
+
+      Object.assign(trackedVersion, latest);
     } catch (error) {
       ctx.logger.warn('获取版本信息失败:', error);
     }
   };
-  // 初始化并设置定时任务
+
   checkVersions();
-  versionCheckInterval = ctx.setInterval(checkVersions, config.updInterval * 60000);
+  ctx.setInterval(checkVersions, config.updInterval * 60000);
 }

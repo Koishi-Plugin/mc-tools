@@ -96,20 +96,6 @@ async function sendStatusNotification(ctx: Context, targets: StatusTarget[], cha
   await ctx.broadcast(broadcastChannels, statusMessage);
 }
 
-let confirmedStatus: MinecraftServiceStatus = {};
-let lastRawStatus: MinecraftServiceStatus = {};
-let statusCheckInterval: NodeJS.Timeout | null = null;
-
-/**
- * 清理并停止后台的状态检查定时器。
- */
-export function cleanupStatusCheck() {
-  if (statusCheckInterval) {
-    clearInterval(statusCheckInterval);
-    statusCheckInterval = null;
-  }
-}
-
 /**
  * 向 Koishi 注册 .status 子命令。
  * @param mc - 父命令 'mc' 的实例。
@@ -133,6 +119,9 @@ export function registerStatus(mc: Command) {
  */
 export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTargets?: StatusTarget[], statusUpdInterval?: number }) {
   if (!config.statusNoticeTargets?.length) return;
+
+  let confirmedStatus: MinecraftServiceStatus = {};
+  let lastRawStatus: MinecraftServiceStatus = {};
 
   const checkStatus = async () => {
     try {
@@ -158,8 +147,6 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
     }
   };
 
-  // 启动时立即执行一次，然后设置定时器
   checkStatus();
-  const intervalMinutes = config.statusUpdInterval ?? 10;
-  statusCheckInterval = setInterval(checkStatus, intervalMinutes * 60 * 1000);
+  ctx.setInterval(checkStatus, config.statusUpdInterval * 60000);
 }
