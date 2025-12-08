@@ -120,33 +120,37 @@ export function registerStatus(mc: Command) {
 export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTargets?: StatusTarget[], statusUpdInterval?: number }) {
   if (!config.statusNoticeTargets?.length) return;
 
-  let confirmedStatus: MinecraftServiceStatus = {};
-  let lastRawStatus: MinecraftServiceStatus = {};
+  const confirmed: Record<string, boolean> = {};
+  const fails: Record<string, number> = {};
 
-  const checkStatus = async () => {
+  const check = async () => {
     try {
-      const currentStatus = await getMinecraftStatus();
-      if (Object.keys(confirmedStatus).length === 0) {
-        confirmedStatus = { ...currentStatus };
-        lastRawStatus = { ...currentStatus };
-        return;
-      }
+      const current = await getMinecraftStatus();
       const changes: StatusChange[] = [];
-      for (const [service, isOnline] of Object.entries(currentStatus)) {
-        if (lastRawStatus[service] === isOnline) {
-          if (confirmedStatus[service] !== undefined && confirmedStatus[service] !== isOnline) {
-            changes.push({ service, from: confirmedStatus[service], to: isOnline });
-            confirmedStatus[service] = isOnline;
-          }
+
+      for (const [key, online] of Object.entries(current)) {
+        fails[key] = online ? 0 : (fails[key] || 0) + 1;
+
+        if (confirmed[key] === undefined) {
+          confirmed[key] = online;
+          continue;
+        }
+
+        if (online && !confirmed[key]) {
+          confirmed[key] = true;
+          changes.push({ service: key, from: false, to: true });
+        } else if (!online && confirmed[key] && fails[key] >= 3) {
+          confirmed[key] = false;
+          changes.push({ service: key, from: true, to: false });
         }
       }
-      lastRawStatus = currentStatus;
-      if (changes.length > 0) await sendStatusNotification(ctx, config.statusNoticeTargets, changes);
-    } catch (error) {
-      ctx.logger.warn('检查 Minecraft 服务状态失败:', error);
+
+      if (changes.length) await sendStatusNotification(ctx, config.statusNoticeTargets, changes);
+    } catch (e) {
+      ctx.logger.warn('检查 Minecraft 服务状态失败:', e);
     }
   };
 
-  checkStatus();
-  ctx.setInterval(checkStatus, config.statusUpdInterval * 60000);
+  check();
+  ctx.setInterval(check, (config.statusUpdInterval) * 60000);
 }
