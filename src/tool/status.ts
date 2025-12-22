@@ -15,15 +15,6 @@ export interface StatusTarget {
  */
 type MinecraftServiceStatus = Record<string, boolean>;
 
-/**
- * 描述一次具体服务状态变更的详细信息。
- */
-interface StatusChange {
-  service: string;
-  from: boolean;
-  to: boolean;
-}
-
 /** 需要监控的 Minecraft 服务列表 */
 const servicesToCheck = {
   'Minecraft Net': 'https://minecraft.net/',
@@ -49,9 +40,7 @@ function formatStatusMessage(status: MinecraftServiceStatus): string {
 
 /**
  * 检查单个服务的在线状态。
- * 如果 HTTP 状态码小于 500，则认为服务在线。
  * @param url - 要检查的服务 URL。
- * @returns 服务的健康状态 (true | false)。
  */
 async function checkServiceStatus(url: string): Promise<boolean> {
   try {
@@ -77,26 +66,6 @@ async function getMinecraftStatus(): Promise<MinecraftServiceStatus> {
 }
 
 /**
- * 将多个状态变更合并为一条通知，并通过 ctx.broadcast 发送出去。
- * @param ctx - Koishi 的上下文对象。
- * @param targets - 通知的目标频道列表。
- * @param changes - 本次检查中发生的状态变更列表。
- */
-async function sendStatusNotification(ctx: Context, targets: StatusTarget[], changes: StatusChange[]) {
-  if (!targets?.length) return;
-
-  const changeLines = changes.map(({ service, to: isOnline }) => {
-    const symbol = isOnline ? '[√]' : '[×]';
-    const statusText = isOnline ? '恢复正常' : '服务异常';
-    return `${symbol} ${service}: ${statusText}`;
-  });
-
-  const statusMessage = ['Minecraft 服务状态变更:', ...changeLines].join('\n');
-  const broadcastChannels = targets.map(t => `${t.platform}:${t.channelId}`);
-  await ctx.broadcast(broadcastChannels, statusMessage);
-}
-
-/**
  * 向 Koishi 注册 .status 子命令。
  * @param mc - 父命令 'mc' 的实例。
  */
@@ -113,38 +82,47 @@ export function registerStatus(mc: Command) {
 }
 
 /**
- * 设置并启动后台的定时状态检查任务。
+ * 启动后台定时状态检查任务。
+ * 仅在所有服务全部宕机或全部恢复正常时发送通知。
  * @param ctx - Koishi 的上下文对象。
- * @param config - 插件的配置对象。
+ * @param config - 插件配置，包含通知目标和检查频率。
  */
 export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTargets?: StatusTarget[], statusUpdInterval?: number }) {
-  if (!config.statusNoticeTargets?.length) return;
-  const states: Record<string, { online: boolean; count: number }> = {};
+  const targets = config.statusNoticeTargets;
+  if (!targets?.length) return;
+  let lastConfirmedState = true;
+  let pendingState: boolean | null = null;
+  let count = 0;
 
   const check = async () => {
     try {
       const current = await getMinecraftStatus();
-      const changes: StatusChange[] = [];
-
-      for (const [name, isNowOnline] of Object.entries(current)) {
-        if (!states[name]) {
-          states[name] = { online: isNowOnline, count: 0 };
-          continue;
-        }
-        const state = states[name];
-        if (state.online === isNowOnline) {
-          state.count = 0;
-          continue;
-        }
-        state.count++;
-        if (state.count >= 3) {
-          changes.push({ service: name, from: state.online, to: isNowOnline });
-          state.online = isNowOnline;
-          state.count = 0;
-        }
+      const onlineCount = Object.values(current).filter(v => v).length;
+      const totalCount = Object.keys(servicesToCheck).length;
+      let currentState: boolean | null = null;
+      if (onlineCount === totalCount) currentState = true;
+      else if (onlineCount === 0) currentState = false;
+      if (currentState === null || currentState === lastConfirmedState) {
+        count = 0;
+        pendingState = null;
+        return;
       }
-
-      if (changes.length && config.statusNoticeTargets) await sendStatusNotification(ctx, config.statusNoticeTargets, changes);
+      if (currentState === pendingState) {
+        count++;
+      } else {
+        pendingState = currentState;
+        count = 1;
+      }
+      if (count >= 3) {
+        const msg = currentState
+          ? 'Minecraft 服务恢复正常'
+          : 'Minecraft 服务全部宕机';
+        const channels = targets.map(t => `${t.platform}:${t.channelId}`);
+        await ctx.broadcast(channels, msg);
+        lastConfirmedState = currentState;
+        count = 0;
+        pendingState = null;
+      }
     } catch (e) {
       ctx.logger.warn('检查 Minecraft 服务状态失败:', e);
     }
