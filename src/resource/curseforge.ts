@@ -27,7 +27,7 @@ export async function searchCurseForgeProjects(ctx: Context, keyword: string, ap
       'modLoaderTypes', 'sortField', 'pageSize', 'index'
     ]
     validParams.forEach(param => {
-      if (options[param] === undefined) return
+      if (options[param] === undefined || (param === 'categoryId' && options[param] === 0)) return
       if (Array.isArray(options[param])) {
         params[param] = options[param].join(',')
       } else if (typeof options[param] === 'string' &&
