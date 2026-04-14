@@ -127,14 +127,18 @@ export function regVerCheck(ctx: Context, config: Config) {
     try {
       const latest = await getLatestVersion();
       Object.assign(sharedVersionCache, latest);
-      const isFirstCheck = !trackedVersion.release.id;
-
-      if (!isFirstCheck) {
-        if (latest.release.id !== trackedVersion.release.id) await sendUpdateNotification(ctx, config.noticeTargets, 'release', latest.release);
-        if (latest.snapshot.id !== trackedVersion.snapshot.id && latest.snapshot.id !== latest.release.id) await sendUpdateNotification(ctx, config.noticeTargets, 'snapshot', latest.snapshot);
+      for (const type of ['release', 'snapshot'] as const) {
+        const old = trackedVersion[type];
+        const current = latest[type];
+        const oldTime = Date.parse(old.releaseTime) || 0;
+        const currentTime = Date.parse(current.releaseTime) || 0;
+        if (old.id && current.id !== old.id && currentTime > oldTime) {
+          if (type === 'release' || current.id !== latest.release.id) {
+            await sendUpdateNotification(ctx, config.noticeTargets, type, current);
+          }
+        }
+        if (currentTime >= oldTime) trackedVersion[type] = current;
       }
-
-      Object.assign(trackedVersion, latest);
     } catch (error) {
       // ctx.logger.warn('获取版本信息失败:', error);
       return;
