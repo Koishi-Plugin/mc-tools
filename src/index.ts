@@ -50,6 +50,7 @@ export interface Config {
   mcmodEnabled: false | string
   mcwikiEnabled: boolean
   linkParserEnabled: 'disable' | 'text' | 'shot'
+  linkParserCache: number
   maxParagraphs: number
   maxDescLength: number
 }
@@ -61,6 +62,7 @@ export const Config: Schema<Config> = Schema.intersect([
       Schema.const('text').description('启用'),
       Schema.const('shot').description('启用（截图）')
     ]).description('启用链接解析').default('disable'),
+    linkParserCache: Schema.number().description('链接解析冷却 (分钟)').default(60).min(0),
     mcwikiEnabled: Schema.boolean().description('启用 MC Wiki 查询').default(true),
     modrinthEnabled: Schema.boolean().description('启用 Modrinth 查询').default(true),
     mcmodEnabled: Schema.union([

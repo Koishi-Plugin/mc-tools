@@ -6,6 +6,9 @@ import { getCurseForgeProject } from './curseforge'
 import { getMcmodProject, getMcmodModpack, getMcmodPost, getMcmodItem } from './mcmod'
 import { getMcwikiPage } from './mcwiki'
 
+/** 链接解析缓存 */
+const cache = new Map<string, number>()
+
 /**
  * 链接解析器配置数组
  * 每个解析器包含正则表达式和对应的处理函数
@@ -69,9 +72,18 @@ async function parseAndProcess(ctx: Context, session: Session, content: string, 
   for (const { regex, handler } of LINK_PARSERS) {
     const match = content.match(regex)
     if (!match) continue
+    const cacheKey = match[0]
+    const now = Date.now()
+    if (config.linkParserCache > 0) {
+      const lastTime = cache.get(cacheKey) || 0
+      if (now - lastTime < config.linkParserCache * 60000) return null
+    }
     try {
       const result = await handler(ctx, match, config)
-      if (result) return await renderOutput(session, result.content, result.url, ctx, config, config.linkParserEnabled === 'shot')
+      if (result) {
+        if (config.linkParserCache > 0) cache.set(cacheKey, now)
+        return await renderOutput(session, result.content, result.url, ctx, config, config.linkParserEnabled === 'shot')
+      }
     } catch (error) {
       ctx.logger.error(`链接解析失败:`, error.message)
     }
