@@ -17,12 +17,12 @@ type MinecraftServiceStatus = Record<string, boolean>;
 
 /** 需要监控的 Minecraft 服务列表 */
 const servicesToCheck = {
-  'Minecraft Net': 'https://minecraft.net/',
-  'Session': 'http://session.minecraft.net/',
-  'Textures': 'http://textures.minecraft.net/',
-  'Mojang API': 'https://api.mojang.com/',
-  'Account': 'http://account.mojang.com/',
+  'Microsoft Login': 'https://login.live.com/',
+  'Xbox Service': 'https://user.auth.xboxlive.com/',
   'Session Server': 'https://sessionserver.mojang.com/',
+  'Skin (Textures)': 'https://textures.minecraft.net/',
+  'Minecraft API': 'https://api.minecraftservices.com/',
+  'Mojang API': 'https://api.mojang.com/',
 };
 
 /**
