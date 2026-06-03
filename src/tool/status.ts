@@ -1,68 +1,47 @@
 import { Context, Command } from 'koishi';
 import { Config } from '../index';
 
-/**
- * 定义机器人发送通知的目标。
- */
-export interface StatusTarget {
-  platform: string;
-  channelId: string;
-}
+export interface StatusTarget { platform: string; channelId: string }
 
-/**
- * 定义了 Minecraft 服务状态的数据结构。
- * true 代表正常, false 代表异常。
- */
 type MinecraftServiceStatus = Record<string, boolean>;
 
-/** 需要监控的 Minecraft 服务列表 */
-const servicesToCheck = {
-  'Microsoft Login': 'https://login.live.com/',
-  'Xbox Service': 'https://user.auth.xboxlive.com/',
-  'Session Server': 'https://sessionserver.mojang.com/',
-  'Skin (Textures)': 'https://textures.minecraft.net/',
-  'Minecraft API': 'https://api.minecraftservices.com/',
-  'Mojang API': 'https://api.mojang.com/',
-};
-
 /**
- * 将 Minecraft 状态对象格式化为用户友好的字符串。
- * @param status - 要格式化的状态对象。
- * @returns 格式化后的消息字符串。
- */
-function formatStatusMessage(status: MinecraftServiceStatus): string {
-  const statusLines = Object.entries(status).map(([service, isOnline]) => {
-    const symbol = isOnline ? '[√]' : '[×]';
-    return `${symbol} ${service}`;
-  });
-  return ['Minecraft 服务状态:', ...statusLines].join('\n');
-}
-
-/**
- * 检查单个服务的在线状态。
- * @param url - 要检查的服务 URL。
- */
-async function checkServiceStatus(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(10000), redirect: 'follow' });
-    return response.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 并发检查所有预定义的服务，并返回它们的状态集合。
- * @returns 包含所有服务状态的对象。
+ * 获取 Minecraft 相关服务的状态。
+ * 模拟 Microsoft OAuth、Xbox Live、Minecraft API 等关键服务的请求，判断它们是否正常响应。
+ * @returns 包含各服务在线状态的对象
  */
 async function getMinecraftStatus(): Promise<MinecraftServiceStatus> {
-  const statusEntries = await Promise.all(
-    Object.entries(servicesToCheck).map(async ([name, url]) => {
-      const isOnline = await checkServiceStatus(url);
-      return [name, isOnline] as const;
+  const endpoints: Array<[string, string, 'GET' | 'POST', string?]> = [
+    // Microsoft OAuth: 获取 OAuth2 token
+    ['Microsoft Login', 'https://login.live.com/oauth20_authorize.srf?client_id=dummy_client_id&response_type=code&scope=service::user.auth.xboxlive.com::MBI_SSL&redirect_uri=https://login.live.com/oauth20_desktop.srf', 'GET'],
+    // Xbox Live: 使用 MS Token 获取 XBL Token
+    ['Xbox Auth', 'https://user.auth.xboxlive.com/user/authenticate', 'POST', JSON.stringify({ Properties: { AuthMethod: "RPS", SiteName: "user.auth.xboxlive.com", RpsTicket: "d=dummy_token" }, RelyingParty: "http://auth.xboxlive.com", TokenType: "JWT" })],
+    // Xbox XSTS: 使用 XBL Token 获取 XSTS Token
+    ['Xbox XSTS', 'https://xsts.auth.xboxlive.com/xsts/authorize', 'POST', JSON.stringify({ Properties: { SandboxId: "RETAIL", UserTokens: ["dummy_uhs_token"] }, RelyingParty: "rp://api.minecraftservices.com/", TokenType: "JWT" })],
+    // Minecraft API: 使用 XSTS Token 获取 Access Token
+    ['Minecraft API', 'https://api.minecraftservices.com/authentication/login_with_xbox', 'POST', JSON.stringify({ identityToken: "XBL3.0 x=dummy_uhs;dummy_xsts_token" })],
+    // Session Server: 使用 Access Token 获取 Session ID 和 Profile ID
+    ['Session Server', 'https://sessionserver.mojang.com/?username=dummy_user&serverId=dummy_server_id', 'GET'],
+    // Mojang API: 获取 UUID 和 Name History
+    ['Mojang API', 'https://api.mojang.com/?username=dummy_user', 'GET'],
+    // Skin/Cape: 获取 Skin 和 Cape
+    ['Skin (Textures)', 'https://textures.minecraft.net/?texture=dummy_texture_id', 'GET'],
+  ];
+
+  const results = await Promise.all(
+    endpoints.map(async ([name, url, method, reqBody]) => {
+      try {
+        const response = await fetch(url, {
+          method, headers: method === 'POST' ? { 'Content-Type': 'application/json', 'Accept': 'application/json' } : undefined,
+          body: method === 'POST' ? (reqBody || '{}') : undefined, signal: AbortSignal.timeout(10000), redirect: 'follow'
+        });
+        return [name, response.status < 500] as const;
+      } catch {
+        return [name, false] as const;
+      }
     })
   );
-  return Object.fromEntries(statusEntries);
+  return Object.fromEntries(results);
 }
 
 /**
@@ -71,10 +50,10 @@ async function getMinecraftStatus(): Promise<MinecraftServiceStatus> {
  */
 export function registerStatus(mc: Command) {
   mc.subcommand('.status', '查询 Minecraft 服务状态')
-    .action(async ({ }) => {
+    .action(async () => {
       try {
         const currentStatus = await getMinecraftStatus();
-        return formatStatusMessage(currentStatus);
+        return ['Minecraft 服务状态:', ...Object.entries(currentStatus).map(([service, isOnline]) => `${isOnline ? '[√]' : '[×]'} ${service}`)].join('\n');
       } catch (error) {
         return '获取 Minecraft 服务状态失败';
       }
@@ -83,22 +62,21 @@ export function registerStatus(mc: Command) {
 
 /**
  * 启动后台定时状态检查任务。
- * 仅在所有服务全部宕机或全部恢复正常时发送通知。
  * @param ctx - Koishi 的上下文对象。
  * @param config - 插件配置，包含通知目标和检查频率。
  */
 export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTargets?: StatusTarget[], statusUpdInterval?: number }) {
   const targets = config.statusNoticeTargets;
   if (!targets?.length) return;
-  const lastConfirmedStates: Record<string, boolean> = Object.fromEntries(Object.keys(servicesToCheck).map(name => [name, true]));
+  const lastConfirmedStates: Record<string, boolean> = {};
   const pendingStates: Record<string, { state: boolean, count: number }> = {};
-
+  const channels = targets.map(t => `${t.platform}:${t.channelId}`);
   const check = async () => {
     try {
       const currentStatus = await getMinecraftStatus();
-      const channels = targets.map(t => `${t.platform}:${t.channelId}`);
       for (const [name, isOnline] of Object.entries(currentStatus)) {
-        if (isOnline === lastConfirmedStates[name]) {
+        const expectedState = lastConfirmedStates[name] ?? true;
+        if (isOnline === expectedState) {
           delete pendingStates[name];
           continue;
         }
@@ -108,10 +86,7 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
           pendingStates[name] = { state: isOnline, count: 1 };
         }
         if (pendingStates[name].count >= 3) {
-          const msg = isOnline
-            ? `${name} 恢复正常`
-            : `${name} 出现异常`;
-          await ctx.broadcast(channels, msg);
+          await ctx.broadcast(channels, `${name} ${isOnline ? '恢复正常' : '出现异常'}`);
           lastConfirmedStates[name] = isOnline;
           delete pendingStates[name];
         }
