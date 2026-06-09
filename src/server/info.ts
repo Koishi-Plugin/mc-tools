@@ -154,22 +154,35 @@ async function fetchServerStatus(server: string, forceType: 'java' | 'bedrock'):
  * @returns {ServerStatus} 标准化后的服务器状态对象。
  */
 function normalizeApiResponse(data: any, address: string, serverType: 'java' | 'bedrock'): ServerStatus {
-  const isOnline = data.online === true || data.status === 'success' || data.status === 'online';
+  const isOnline = data.online === true || data.status === 'success' || data.status === 'online' || data.status === true;
   if (!isOnline) return { online: false, host: '', port: 0, players: { online: null, max: null } };
   const { host, port: defPort } = parseServerAddress(address, serverType === 'java' ? 25565 : 19132);
   const motdData = data.motd?.clean || data.motd?.raw || data.description?.text || data.description || data.motd;
-  const motd = Array.isArray(motdData) ? motdData.join('\n') : (typeof motdData === 'object' ? motdData.text : motdData);
+  const motd = Array.isArray(motdData) ? motdData.join('\n') : (typeof motdData === 'object' && motdData !== null ? (motdData.text || '') : (motdData || ''));
+  const rawPlayerList = data.players?.list || data.players?.sample || data.players_list;
+  const playerList = Array.isArray(rawPlayerList) ? rawPlayerList.map((p: any) => typeof p === 'string' ? p : (p?.name_clean || p?.name || '')).filter(Boolean) : undefined;
+  const modsRaw = Array.isArray(data.mods) ? data.mods : (Array.isArray(data.modinfo?.modList) ? data.modinfo.modList : (Array.isArray(data.modlist) ? data.modlist : []));
+  const pluginsRaw = Array.isArray(data.plugins) ? data.plugins : [];
   return {
-    online: true, host: data.hostname || data.host || host, port: data.port || defPort,
-    ip_address: data.ip_address || data.ip, eula_blocked: !!data.eula_blocked, motd: motd,
+    online: true,
+    host: data.hostname || data.host || host,
+    port: data.port || defPort,
+    ip_address: data.ip_address || data.ip || data.hostip,
+    eula_blocked: !!data.eula_blocked,
+    motd: motd.trim(),
     version: { name_clean: data.version?.name_clean || data.version?.name || data.version },
     players: {
-      online: data.players?.online ?? data.players_online ?? data.players?.now ?? 0, max: data.players?.max ?? data.players_max ?? 0,
-      list: (data.players?.list || data.players?.sample || data.players_list)?.map((p: any) => typeof p === 'string' ? p : p.name),
+      online: data.players?.online ?? data.players_online ?? data.players?.now ?? 0,
+      max: data.players?.max ?? data.players_max ?? 0,
+      list: playerList?.length > 0 ? playerList : undefined,
     },
-    icon: data.icon || data.favicon, software: data.software, plugins: Array.isArray(data.plugins) ? data.plugins : undefined,
-    mods: Array.isArray(data.mods) ? data.mods : (data.modinfo?.modList || data.modlist),
-    gamemode: data.gamemode, server_id: data.server_id, edition: data.edition || (serverType === 'bedrock' ? 'MCPE' : null),
+    icon: data.icon || data.favicon || data.favocion,
+    software: data.software,
+    plugins: pluginsRaw.length > 0 ? pluginsRaw : undefined,
+    mods: modsRaw.length > 0 ? modsRaw : undefined,
+    gamemode: data.gamemode || data.gametype,
+    server_id: data.server_id || data.serverid,
+    edition: data.edition || (serverType === 'bedrock' ? 'MCPE' : null),
   };
 }
 
@@ -182,14 +195,19 @@ function normalizeApiResponse(data: any, address: string, serverType: 'java' | '
 function formatServerStatus(status: ServerStatus, config: Config): string {
   if (!status.online) return status.error || '服务器离线';
   const formatList = (list: any[], limit?: number): string | null => {
-    if (!list?.length) return null;
-    const items = list.slice(0, limit).map(item => typeof item === 'string' ? item : (item.version ? `${item.name}-${item.version}` : item.name));
+    if (!Array.isArray(list) || !list.length) return null;
+    const items = list.slice(0, limit).filter(item => item != null)
+      .map(item => {
+        if (typeof item === 'string') return item;
+        return item.version ? `${item.name}-${item.version}` : item.name;
+      }).filter(Boolean);
+    if (!items.length) return null;
     return items.join(', ') + (list.length > (limit || 999) ? '...' : '');
   };
   const getValue = (name: string, limit?: number): string | null => {
     switch (name) {
-      case 'ip': return status.ip_address;
-      case 'icon': return status.icon?.startsWith('data:image/png;base64,') ? h.image(status.icon).toString() : null;
+      case 'ip': return status.ip_address || null;
+      case 'icon': return status.icon?.startsWith('data:image/') ? h.image(status.icon).toString() : null;
       case 'motd': return status.motd;
       case 'version': return status.version?.name_clean;
       case 'online': return status.players.online?.toString();
@@ -203,9 +221,9 @@ function formatServerStatus(status: ServerStatus, config: Config): string {
       case 'playercount': return status.players.list?.length?.toString() || null;
       case 'plugincount': return status.plugins?.length?.toString() || null;
       case 'modcount': return status.mods?.length?.toString() || null;
-      case 'playerlist': return formatList(status.players.list, limit);
-      case 'pluginlist': return formatList(status.plugins, limit);
-      case 'modlist': return formatList(status.mods, limit);
+      case 'playerlist': return formatList(status.players.list || [], limit);
+      case 'pluginlist': return formatList(status.plugins || [], limit);
+      case 'modlist': return formatList(status.mods || [], limit);
       default: return null;
     }
   };
