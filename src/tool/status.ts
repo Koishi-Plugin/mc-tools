@@ -3,7 +3,7 @@ import { Config } from '../index';
 
 export interface StatusTarget { platform: string; channelId: string }
 
-type MinecraftServiceStatus = Record<string, boolean>;
+type MinecraftServiceStatus = Record<string, { online: boolean; msg: string }>;
 
 /**
  * 获取 Minecraft 相关服务的状态。
@@ -35,9 +35,10 @@ async function getMinecraftStatus(): Promise<MinecraftServiceStatus> {
           method, headers: method === 'POST' ? { 'Content-Type': 'application/json', 'Accept': 'application/json' } : undefined,
           body: method === 'POST' ? (reqBody || '{}') : undefined, signal: AbortSignal.timeout(10000), redirect: 'follow'
         });
-        return [name, response.status < 500] as const;
-      } catch {
-        return [name, false] as const;
+        const online = response.status < 500;
+        return [name, { online, msg: response.status.toString() }] as const;
+      } catch (e) {
+        return [name, { online: false, msg: e instanceof Error ? e.name : 'Network Error' }] as const;
       }
     })
   );
@@ -53,7 +54,14 @@ export function registerStatus(mc: Command) {
     .action(async () => {
       try {
         const currentStatus = await getMinecraftStatus();
-        return ['Minecraft 服务状态:', ...Object.entries(currentStatus).map(([service, isOnline]) => `${isOnline ? '[√]' : '[×]'} ${service}`)].join('\n');
+        const lines = Object.entries(currentStatus).map(([service, status]) => {
+          if (status.online) {
+            return `[√] ${service}`;
+          } else {
+            return `[×] ${service} (${status.msg})`;
+          }
+        });
+        return ['Minecraft 服务状态:', ...lines].join('\n');
       } catch (error) {
         return '获取 Minecraft 服务状态失败';
       }
@@ -74,9 +82,14 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
   const check = async () => {
     try {
       const currentStatus = await getMinecraftStatus();
-      for (const [name, isOnline] of Object.entries(currentStatus)) {
-        const expectedState = lastConfirmedStates[name] ?? true;
-        if (isOnline === expectedState) {
+      for (const [name, status] of Object.entries(currentStatus)) {
+        const isOnline = status.online;
+        if (lastConfirmedStates[name] === undefined) {
+          lastConfirmedStates[name] = isOnline;
+          continue;
+        }
+        const lastState = lastConfirmedStates[name];
+        if (isOnline === lastState) {
           delete pendingStates[name];
           continue;
         }
@@ -86,7 +99,8 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
           pendingStates[name] = { state: isOnline, count: 1 };
         }
         if (pendingStates[name].count >= 3) {
-          await ctx.broadcast(channels, `${name} ${isOnline ? '恢复正常' : '出现异常'}`);
+          const message = isOnline ? `[Minecraft 服务恢复] ${name} 恢复正常` : `[Minecraft 服务异常] ${name} 出现异常 (${status.msg})`;
+          await ctx.broadcast(channels, message);
           lastConfirmedStates[name] = isOnline;
           delete pendingStates[name];
         }
@@ -95,7 +109,6 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
       ctx.logger.warn('检查 Minecraft 服务状态失败:', e);
     }
   };
-
   check();
-  ctx.setInterval(check, (config.statusUpdInterval) * 60000);
+  ctx.setInterval(check, (config.statusUpdInterval || 5) * 60000);
 }

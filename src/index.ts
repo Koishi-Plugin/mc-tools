@@ -37,7 +37,6 @@ export interface Config {
   statusUpdInterval: number
   playerEnabled: boolean
   infoEnabled: boolean
-  serverApis?: Array<{ type: 'java' | 'bedrock'; url: string }>
   serverTemplate: string
   serverMaps: ServerMaps[]
   rconServers: ServerConfig[]
@@ -103,20 +102,6 @@ export const Config: Schema<Config> = Schema.intersect([
   }).description('版本&玩家&状态查询配置'),
   Schema.object({
     infoEnabled: Schema.boolean().description('启用服务器查询').default(true),
-    serverApis: Schema.array(Schema.object({
-      type: Schema.union([
-        Schema.const('java').description('Java版'),
-        Schema.const('bedrock').description('基岩版')
-      ]).description('API 类型'),
-      url: Schema.string().description('API URL （使用 ${address} 指代地址）')
-    })).description('服务器查询 API ').default([
-      { type: 'java', url: 'https://api.mcstatus.io/v2/status/java/${address}' },
-      { type: 'bedrock', url: 'https://api.mcstatus.io/v2/status/bedrock/${address}' },
-      { type: 'java', url: 'https://api.mcsrvstat.us/3/${address}' },
-      { type: 'bedrock', url: 'https://api.mcsrvstat.us/bedrock/3/${address}' },
-      { type: 'java', url: 'https://api.imlazy.ink/mcapi?type=json&host=${address}' },
-      { type: 'bedrock', url: 'https://api.imlazy.ink/mcapi?type=json&host=${address}&be=true' }
-    ]).role('table'),
     serverTemplate: Schema.string().role('textarea')
     .description('服务器信息模板（使用{...:x}指代数据，数字代表数量限制）')
     .default('{icon}\n{motd}\n{edition}{software} {version} | {online}/{max} | {ping}\n{gamemode} {serverid} {eulablock}\n玩家({playercount}):{playerlist:10}\n插件({plugincount}):{pluginlist:10}\n模组({modcount}):{modlist:10}')
@@ -151,7 +136,7 @@ export function apply(ctx: Context, config: Config) {
   // 玩家信息查询
   config.playerEnabled !== false && registerPlayer(ctx, mc)
   // 服务器信息查询
-  config.infoEnabled !== false && config.serverApis?.length && registerInfo(mc, config)
+  config.infoEnabled !== false && registerInfo(mc, config)
   // 服务器连接与管理
   if (config.rconServers.length > 0) registerServer(ctx, mc, config)
   // 资源查询
