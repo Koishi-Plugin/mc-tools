@@ -36,9 +36,9 @@ async function getMinecraftStatus(): Promise<MinecraftServiceStatus> {
           body: method === 'POST' ? (reqBody || '{}') : undefined, signal: AbortSignal.timeout(10000), redirect: 'follow'
         });
         const online = response.status < 500;
-        return [name, { online, msg: response.status.toString() }] as const;
+        return [name, { online, msg: response.status.toString() }];
       } catch (e) {
-        return [name, { online: false, msg: e instanceof Error ? e.name : 'Network Error' }] as const;
+        return [name, { online: false, msg: (e as any).message }];
       }
     })
   );
@@ -55,11 +55,7 @@ export function registerStatus(mc: Command) {
       try {
         const currentStatus = await getMinecraftStatus();
         const lines = Object.entries(currentStatus).map(([service, status]) => {
-          if (status.online) {
-            return `[√] ${service}`;
-          } else {
-            return `[×] ${service} (${status.msg})`;
-          }
+          return `${status.online ? '[√]' : '[×]'} ${service}${status.online ? '' : ` (${status.msg})`}`;
         });
         return ['Minecraft 服务状态:', ...lines].join('\n');
       } catch (error) {
@@ -84,10 +80,7 @@ export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTarg
       const currentStatus = await getMinecraftStatus();
       for (const [name, status] of Object.entries(currentStatus)) {
         const isOnline = status.online;
-        if (lastConfirmedStates[name] === undefined) {
-          lastConfirmedStates[name] = isOnline;
-          continue;
-        }
+        if (lastConfirmedStates[name] === undefined) lastConfirmedStates[name] = true;
         const lastState = lastConfirmedStates[name];
         if (isOnline === lastState) {
           delete pendingStates[name];
