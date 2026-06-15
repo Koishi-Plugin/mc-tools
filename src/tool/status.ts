@@ -70,33 +70,24 @@ export function registerStatus(mc: Command) {
  * @param config - 插件配置，包含通知目标和检查频率。
  */
 export function regStatusCheck(ctx: Context, config: Config & { statusNoticeTargets?: StatusTarget[], statusUpdInterval?: number }) {
-  const targets = config.statusNoticeTargets;
-  if (!targets?.length) return;
-  const lastConfirmedStates: Record<string, boolean> = {};
-  const pendingStates: Record<string, { state: boolean, count: number }> = {};
-  const channels = targets.map(t => `${t.platform}:${t.channelId}`);
+  const channels = config.statusNoticeTargets?.map(t => `${t.platform}:${t.channelId}`);
+  if (!channels?.length) return;
+  const states = new Map<string, { last: boolean; count: number }>();
   const check = async () => {
     try {
-      const currentStatus = await getMinecraftStatus();
-      for (const [name, status] of Object.entries(currentStatus)) {
-        const isOnline = status.online;
-        if (lastConfirmedStates[name] === undefined) lastConfirmedStates[name] = true;
-        const lastState = lastConfirmedStates[name];
-        if (isOnline === lastState) {
-          delete pendingStates[name];
-          continue;
-        }
-        if (pendingStates[name]?.state === isOnline) {
-          pendingStates[name].count++;
+      const status = await getMinecraftStatus();
+      for (const [name, { online, msg }] of Object.entries(status)) {
+        const state = states.get(name) ?? { last: true, count: 0 };
+        if (online !== state.last) {
+          if (++state.count >= 3) {
+            state.last = online;
+            state.count = 0;
+            ctx.broadcast(channels, online  ? `[Minecraft 服务恢复] ${name} 恢复正常`  : `[Minecraft 服务异常] ${name} 出现异常 (${msg})`);
+          }
         } else {
-          pendingStates[name] = { state: isOnline, count: 1 };
+          state.count = 0;
         }
-        if (pendingStates[name].count >= 3) {
-          const message = isOnline ? `[Minecraft 服务恢复] ${name} 恢复正常` : `[Minecraft 服务异常] ${name} 出现异常 (${status.msg})`;
-          await ctx.broadcast(channels, message);
-          lastConfirmedStates[name] = isOnline;
-          delete pendingStates[name];
-        }
+        states.set(name, state);
       }
     } catch (e) {
       ctx.logger.warn('检查 Minecraft 服务状态失败:', e);
