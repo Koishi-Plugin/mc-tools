@@ -65,7 +65,7 @@ function setupServerIdBefore({ session, options }: { session?: Session; options?
   if (!session) return '';
 
   if (!options.server) {
-    const mapping = config.serverMaps.find(m => m.platform === session.platform && m.channelId === session.guildId);
+    const mapping = config.serverMaps.find(m => m.platform === session.platform && m.channelId === session.channelId);
     if (!mapping) {
       return '该群组未配置对应服务器';
     }
